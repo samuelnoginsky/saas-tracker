@@ -47,8 +47,30 @@ ACQUIRED = {"RAMP", "WEAV"}
 def load_prices():
     import yfinance as yf
 
+    import time
+
     tickers = list(BASKET) + [BENCH]
-    raw = yf.download(tickers, start=START, auto_adjust=True, progress=False)["Close"]
+    # threads=False avoids parallel downloads colliding on yfinance's local cache
+    raw = yf.download(tickers, start=START, auto_adjust=True, progress=False,
+                      threads=False)["Close"]
+
+    # retry any ticker that came back empty, one at a time
+    for t in tickers:
+        if t in ACQUIRED:
+            continue
+        for attempt in range(3):
+            if t in raw.columns and not raw[t].dropna().empty:
+                break
+            time.sleep(2 * (attempt + 1))
+            try:
+                one = yf.download(t, start=START, auto_adjust=True, progress=False,
+                                  threads=False)["Close"]
+                if isinstance(one, pd.DataFrame):
+                    one = one.iloc[:, 0]
+                if not one.dropna().empty:
+                    raw[t] = one
+            except Exception as exc:
+                print(f"retry {attempt + 1} failed for {t}: {exc}")
     return raw
 
 
